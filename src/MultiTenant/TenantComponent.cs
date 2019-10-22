@@ -6,7 +6,7 @@ using System.Linq;
 
 namespace MultiTenant
 {
-    public class SGComponentBase : OwningComponentBase, IDisposable
+    public class TenantComponent : OwningComponentBase, IDisposable
     {
 
         [Inject] 
