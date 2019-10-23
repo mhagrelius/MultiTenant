@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Linq;
@@ -8,12 +9,18 @@ namespace MultiTenant
 {
     public class TenantComponent : OwningComponentBase, IDisposable
     {
+        [Inject]
+        NavigationManager? NavManager { get; set; }
+
 
         [Inject] 
         IServiceScopeFactory? ScopeFactory { get; set; }
 
         [Inject] 
         protected IHttpContextAccessor? HttpContextAccessor { get; set; }
+
+        [Inject]
+        protected TenantMiddlewareConfiguration Config { get; set; }
 
         private IServiceScope? _scope;
 
@@ -43,32 +50,39 @@ namespace MultiTenant
 
         private IServiceProvider GetTenantProvider(IServiceProvider provider)
         {
-            if (!(Context is null) && (Context.Request?.Path.HasValue == true))
+            var absoluteUri = new Uri(NavManager?.Uri ?? string.Empty);
+            var path = absoluteUri.PathAndQuery;
+            var query = QueryHelpers.ParseQuery(absoluteUri.Query);
+
+            var pathParts = path.Split('/');
+            string qsFacility;
+            if (query.TryGetValue(Config.QuerySegment, out var queryFacility) && !string.IsNullOrWhiteSpace(queryFacility.ToString()))
             {
-                var pathParts = Context.Request.Path.Value.Split('/');
-                var qsFacility = string.IsNullOrEmpty(Context.Request.Query["facility"].ToString())
-                    ? "illinois"
-                    : Context.Request.Query["facility"].ToString();
+                qsFacility = queryFacility.ToString();
+            }
+            else
+            {
+                qsFacility = Config.DefaultTenant;
+            }
 
-                var tenantContainers = provider.GetServices<TenantContainer>().ToList();
-                var pathMatch = pathParts.Length > 0
-                    ? tenantContainers?.FirstOrDefault(r => r?.Name.Equals(pathParts[1], StringComparison.InvariantCultureIgnoreCase) == true)
-                    : null;
-                var qsMatch = tenantContainers?.FirstOrDefault(r => r?.Name.Equals(qsFacility, StringComparison.InvariantCultureIgnoreCase) == true);
+            var tenantContainers = provider.GetServices<TenantContainer>().ToList();
+            var pathMatch = pathParts.Length > 0
+                ? tenantContainers?.FirstOrDefault(r => r?.Name.Equals(pathParts[1], StringComparison.InvariantCultureIgnoreCase) == true)
+                : null;
+            var qsMatch = tenantContainers?.FirstOrDefault(r => r?.Name.Equals(qsFacility, StringComparison.InvariantCultureIgnoreCase) == true);
 
-                TenantContainer? matchingContainer = null;
-                if(pathMatch != null)
-                {
-                    matchingContainer = pathMatch;
-                }
-                else if (qsMatch != null)
-                {
-                    matchingContainer = qsMatch;
-                }
-                if(!(matchingContainer is null))
-                {
-                    return new CompositeServiceProvider(matchingContainer, provider);
-                }
+            TenantContainer? matchingContainer = null;
+            if(pathMatch != null)
+            {
+                matchingContainer = pathMatch;
+            }
+            else if (qsMatch != null)
+            {
+                matchingContainer = qsMatch;
+            }
+            if(!(matchingContainer is null))
+            {
+                return new CompositeServiceProvider(matchingContainer, provider);
             }
 
             return provider;
